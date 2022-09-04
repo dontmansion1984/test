@@ -1,0 +1,139 @@
+﻿import pandas as pd
+import numpy as np
+import spacy	
+from spacy.matcher import Matcher  
+nlp = spacy.load("ru_core_news_lg")
+m_tool = Matcher(nlp.vocab)
+	
+# Толерантность поиска синонимов
+acr = 0.7
+
+# Чтение файла данных
+df = pd.read_csv('test_data.csv')
+# Создание резервного файла
+df.to_csv("test_data_0.csv")
+	
+# Добавление нового столбца 'hi'
+df.loc[:,'hi'] = np.full(len(df), False)
+# Добавление нового столбца 'hello'
+df.loc[:,'bye'] = np.full(len(df), False)
+# Добавление нового столбца 'company'
+df.loc[:,'company'] = np.full(len(df), False)
+# Добавление нового столбца 'name'
+df.loc[:,'name'] = np.full(len(df), False)
+
+# Определяем количество диалогов
+dlg_cnt = df['dlg_id'].max() + 1
+
+hi_lst   = []
+bye_lst  = []
+intr_lst = []
+nm_lst   = []
+cmp_lst  = []
+
+# Реплики, где менеджер поздаровался или попрощался
+def insight(syn, col, vec):
+	global m_tool
+	global hi_lst
+	global bye_lst
+	global nm_lst
+	global cmp_lst
+	global intr_lst
+	for i in range(dlg_cnt):
+		dlg = df.loc[df['dlg_id'] == i]
+
+		# Количество строк в диалоге
+		len_dlg = len(dlg)
+		idx = df.loc[(df['role'] == 'manager') & (df['dlg_id'] == i)]['line_n'].tolist()
+		dlg = df.loc[(df['role'] == 'manager') & (df['dlg_id'] == i)]['text'].tolist()
+		dlg_len = len(dlg)
+
+		for n in range(len(idx)):
+			# Проверяем текст на наличие фраз из шаблона
+			sentence = nlp(df.loc[idx[n], 'text'])
+			m_tool.add('match', vec)
+			phrase_matches = m_tool(sentence)
+			if len(phrase_matches) > 0:
+				for match_id, start, end in phrase_matches:
+					string_id = nlp.vocab.strings[match_id]
+					span = sentence[start:end+1]
+				if col == 'hi':
+					hi_lst.append(span.text)
+				if col == 'bye':
+					bye_lst.append(span.text)
+				if col == 'name':
+					intr_lst.append(span.text)
+					nm_lst.append(sentence[phrase_matches[0][1]+2])
+				if col == 'company':
+					cmp_lst.append(span.text)
+				phrase_matches = []
+				df.loc[idx[n], col] = True
+					
+			# Проверка текста на наличие синонимов
+			for m in range(len(sentence)):
+				wrd = sentence[m]
+				snm = nlp(syn)
+				p = wrd.similarity(snm)
+				if p > acr:
+					df.loc[idx[n], col] = True
+		# Проверка на приветствие и прощание
+		cond1 = (len(np.where(np.asarray(df.loc[idx,'hi' ].tolist()) == True)[0]) > 0)
+		cond2 = (len(np.where(np.asarray(df.loc[idx,'bye'].tolist()) == True)[0]) > 0)
+		if col == 'bye':
+			if cond1 & cond2:
+				print('В диалоге', str(i), 'менеджер поздоровался и попрощался')
+			elif cond1:
+				print('В диалоге', str(i), 'менеджер только поздоровался')
+			elif cond2:
+				print('В диалоге', str(i), 'менеджер только попрощался')
+			
+	m_tool = Matcher(nlp.vocab)
+	print('')
+
+#==================== Реплики, где менеджер поздоровался ===========================================	
+p1 = [{'LOWER': 'здравствуйте'}]    
+p2 = [{'LOWER': 'добрый'}, {'LOWER': 'день'}]  
+p3 = [{'LOWER': 'доброе'}, {'LOWER': 'утро'}]   
+p4 = [{'LOWER': 'добрый'}, {'LOWER': 'вечер'}]
+vec = [p1, p2, p3, p4]
+col = 'hi'
+syn = 'привет'
+insight(syn, col, vec)
+#==================== Реплики, где менеджер попрощался =============================================
+p1 = [{'LOWER': 'до'}, {'LOWER': 'свидания'}]  
+p2 = [{'LOWER': 'всего'}, {'LOWER': 'хорошего'}]   
+p3 = [{'LOWER': 'всего'}, {'LOWER': 'доброго'}]
+p4 = [{'LOWER': 'хорошего'}, {'LOWER': 'дня'}]
+vec = [p1, p2, p3, p4]
+col = 'bye'
+syn = 'прощайте'
+insight(syn, col, vec)
+#==================== Реплики, где менеджер представился ============================================
+p1 = [{'LOWER': 'меня'}, {'LOWER': 'зовут'}] 
+p2 = [{'LOWER': 'мое'}, {'LOWER': 'имя'}]   
+p3 = [{'LOWER': 'разрешите'}, {'LOWER': 'представиться'}]
+p4 = [{'LOWER': 'моё'}, {'LOWER': 'имя'}]
+vec = [p1, p2, p3, p4]
+col = 'name'
+syn = 'наталья'
+insight(syn, col, vec)
+#==================== Название компании =============================================================
+p1 = [{'LOWER': 'компания'}]  
+p2 = [{'LOWER': 'компании'}]   
+p3 = [{'LOWER': 'компаний'}]
+p4 = [{'LOWER': 'компанию'}]
+vec = [p1, p2, p3, p4]
+col = 'company'
+syn = 'компания'
+insight(syn, col, vec)
+#=============== Отчет =============================================================================
+print('Реплики, в которых менеджер поздоровался')
+print(hi_lst)
+print('Реплики, в которых менеджер ппопрощался')
+print(bye_lst)
+print('Реплики, в которых менеджер представился')
+print(intr_lst)
+print('Имя менеджера')
+print(nm_lst)
+print('Компании')
+print(cmp_lst)
